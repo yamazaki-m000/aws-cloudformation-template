@@ -9,17 +9,15 @@ Parameters:
   EnvName:
     Description: An environment name that will be prefixed to resource names
     Type: String
-    Default: Dafita
+    Default: stg
     AllowedValues:
-      - Dafita
-      - Dafpfm
-      - Stg
-      - Prd
+      - stg
+      - prd
 
   ServiceName:
     Description: Please enter the service name provided to the customer
     Type: String
-    Default: DAPSdr
+    Default: equipms
 
   RevisionNumber:
     Description: The revision number of this template consists of 3 parts.
@@ -33,33 +31,14 @@ Parameters:
 
 Mappings:
   Vpc:
-    Dafita:
-      VpcCIDR: 10.210.0.0/16
-      FrontASubnetCIDR: 10.210.8.0/23
-      FrontCSubnetCIDR: 10.210.72.0/23
-      ServiceASubnetCIDR: 10.210.16.0/23
-      ServiceCSubnetCIDR: 10.210.80.0/23
-      BackendASubnetCIDR: 10.210.128.0/23
-      BackendCSubnetCIDR: 10.210.192.0/23
-      BastionSubnetCIDR: 10.210.248.0/24
-    Stg:
-      VpcCIDR: 10.208.0.0/16
-      FrontASubnetCIDR: 10.208.8.0/23
-      FrontCSubnetCIDR: 10.208.72.0/23
-      ServiceASubnetCIDR: 10.208.16.0/23
-      ServiceCSubnetCIDR: 10.208.80.0/23
-      BackendASubnetCIDR: 10.208.128.0/23
-      BackendCSubnetCIDR: 10.208.192.0/23
-      BastionSubnetCIDR: 10.208.248.0/24
-    Prd:
-      VpcCIDR: 10.16.0.0/16
-      FrontASubnetCIDR: 10.16.8.0/23
-      FrontCSubnetCIDR: 10.16.72.0/23
-      ServiceASubnetCIDR: 10.16.16.0/23
-      ServiceCSubnetCIDR: 10.16.80.0/23
-      BackendASubnetCIDR: 10.16.128.0/23
-      BackendCSubnetCIDR: 10.16.192.0/23
-      BastionSubnetCIDR: 10.16.248.0/24
+    stg:
+      VpcCIDR: 10.2.0.0/16
+      PublicSubnetCIDR: 10.2.11.0/24
+      PrivateSubnetCIDR: 10.2.21.0/24
+    prd:
+      VpcCIDR: 10.3.0.0/16
+      PublicSubnetCIDR: 10.3.11.0/24
+      PrivateSubnetCIDR: 10.3.21.0/24
 
 # ------------------------------------------------------------
 # Resources section
@@ -73,22 +52,22 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub IOT Cloud ${ServiceName} ${EnvName}
+          Value: !Sub ${EnvName}-${ServiceName}-vpc
         - Key: Env
           Value: !Ref EnvName
         - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
+          Value: !Ref ServiceName
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}
+          Value: !Sub ${EnvName}-${ServiceName}-igw
         - Key: Env
           Value: !Ref EnvName
         - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
+          Value: !Ref ServiceName
 
   InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -99,139 +78,35 @@ Resources:
   # ----------------------------------------
   # Subnets
   # ----------------------------------------
-  FrontASubnet:
+  PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, FrontASubnetCIDR]
+      CidrBlock: !FindInMap [Vpc, !Ref EnvName, PublicSubnetCIDR]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}FrontA
+          Value: !Sub ${EnvName}-${ServiceName}-public-subnet
         - Key: Env
           Value: !Ref EnvName
         - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
+          Value: !Ref ServiceName
 
-  FrontCSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, FrontCSubnetCIDR]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}FrontC
-        - Key: Env
-          Value: !Ref EnvName
-        - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  ServiceASubnet:
+  PrivateSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, ServiceASubnetCIDR]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}ServiceA
-        - Key: Env
-          Value: !Ref EnvName
-        - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  ServiceCSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, ServiceCSubnetCIDR]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}ServiceC
-        - Key: Env
-          Value: !Ref EnvName
-        - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  BackendASubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, BackendASubnetCIDR]
+      CidrBlock: !FindInMap [Vpc, !Ref EnvName, PrivateSubnetCIDR]
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}BackendA
+          Value: !Sub ${EnvName}-${ServiceName}-private-subnet
         - Key: Env
           Value: !Ref EnvName
         - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  BackendCSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, BackendCSubnetCIDR]
-      MapPublicIpOnLaunch: false
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}BackendC
-        - Key: Env
-          Value: !Ref EnvName
-        - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  BastionSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [Vpc, !Ref EnvName, BastionSubnetCIDR]
-      MapPublicIpOnLaunch: false
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}Bastion
-        - Key: Env
-          Value: !Ref EnvName
-        - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
-
-  #
-  # NAT Gateways
-  #
-
-#  NATGatewayAEIP:
-#    Type: AWS::EC2::EIP
-#    DependsOn: InternetGatewayAttachment
-#    Properties:
-#      Domain: vpc
-#
-#  NATGatewayCEIP:
-#    Type: AWS::EC2::EIP
-#    DependsOn: InternetGatewayAttachment
-#    Properties:
-#      Domain: vpc
-#
-#  NATGatewayA:
-#    Type: AWS::EC2::NatGateway
-#    Properties:
-#      AllocationId: !GetAtt NATGatewayAEIP.AllocationId
-#      SubnetId: !Ref FrontASubnet
-#
-#  NATGatewayC:
-#    Type: AWS::EC2::NatGateway
-#    Properties:
-#      AllocationId: !GetAtt NATGatewayCEIP.AllocationId
-#      SubnetId: !Ref FrontCSubnet
-
+          Value: !Ref ServiceName
 
   # ----------------------------------------
   # RouteTables/Routes
@@ -242,11 +117,11 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${EnvName}${ServiceName}PublicRoute
+          Value: !Sub ${EnvName}-${ServiceName}-public-route
         - Key: Env
           Value: !Ref EnvName
         - Key: Service
-          Value: !Sub IoTCloud${ServiceName}
+          Value: !Ref ServiceName
 
   DefaultPublicRoute:
     Type: AWS::EC2::Route
@@ -256,88 +131,11 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  FrontASubnetRouteTableAssociation:
+  PublicSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref FrontASubnet
-
-  FrontCSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref FrontCSubnet
-
-  ServiceASubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref ServiceASubnet
-
-  ServiceCSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref ServiceCSubnet
-
-  BastionSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref BastionSubnet
-
-# Settings for NAT route tables.
-
-#  NATRouteTableA:
-#    Type: AWS::EC2::RouteTable
-#    Properties:
-#      VpcId: !Ref VPC
-#      Tags:
-#        - Key: Name
-#          Value: !Sub ${EnvName}${ServiceName}NATRouteA
-#        - Key: Env
-#          Value: !Ref EnvName
-#        - Key: Service
-#          Value: !Sub IoTCloud${ServiceName}
-#
-#  NATRouteTableC:
-#    Type: AWS::EC2::RouteTable
-#    Properties:
-#      VpcId: !Ref VPC
-#      Tags:
-#        - Key: Name
-#          Value: !Sub ${EnvName}${ServiceName}NATRouteC
-#        - Key: Env
-#          Value: !Ref EnvName
-#        - Key: Service
-#          Value: !Sub IoTCloud${ServiceName}
-#
-#  NATRouteA:
-#    Type: AWS::EC2::Route
-#    Properties:
-#      RouteTableId: !Ref NATRouteTableA
-#      DestinationCidrBlock: 0.0.0.0/0
-#      NatGatewayId: !Ref NATGatewayA
-#
-#  NATRouteC:
-#    Type: AWS::EC2::Route
-#    Properties:
-#      RouteTableId: !Ref NATRouteTableC
-#      DestinationCidrBlock: 0.0.0.0/0
-#      NatGatewayId: !Ref NATGatewayC
-#
-#  BackendASubnetRouteTableAssociation:
-#    Type: AWS::EC2::SubnetRouteTableAssociation
-#    Properties:
-#      RouteTableId: !Ref NATRouteTableA
-#      SubnetId: !Ref BackendASubnet
-#
-#  BackendCSubnetRouteTableAssociation:
-#    Type: AWS::EC2::SubnetRouteTableAssociation
-#    Properties:
-#      RouteTableId: !Ref NATRouteTableC
-#      SubnetId: !Ref BackendCSubnet
-
+      SubnetId: !Ref PublicSubnet
 
   # ----------------------------------------
   # Security Groups
@@ -346,18 +144,18 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       VpcId: !Ref VPC
-      GroupName: !Sub Internal${EnvName}${ServiceName}
+      GroupName: !Sub ${EnvName}-${ServiceName}-internal
       GroupDescription: "Allow all traffic from and to each other within the VPC."
       SecurityGroupIngress:
         - CidrIp: !FindInMap [Vpc, !Ref EnvName, VpcCIDR]
           IpProtocol: "-1"
 
-  SecurityGroupPublicWeb:
+  SecurityGroupPublicApi:
     Type: AWS::EC2::SecurityGroup
     Properties:
       VpcId: !Ref VPC
-      GroupName: !Sub PublicWeb${EnvName}${ServiceName}
-      GroupDescription: "Allow HTTP/HTTPS traffic from the Internet to the Web application servers."
+      GroupName: !Sub ${EnvName}-${ServiceName}-public-api
+      GroupDescription: "Allow HTTP/HTTPS traffic from the Internet to the API."
       SecurityGroupIngress:
         - CidrIp: "0.0.0.0/0"
           IpProtocol: "tcp"
@@ -372,7 +170,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       VpcId: !Ref VPC
-      GroupName: !Sub MainteTF${EnvName}${ServiceName}
+      GroupName: !Sub ${EnvName}-${ServiceName}-mainte-tf
       GroupDescription: "Allow all traffic from Tech Fun."
       SecurityGroupIngress:
         - CidrIp: !Ref IpAddressTF
@@ -392,82 +190,34 @@ Outputs:
     Description: A reference to the created VPC
     Value: !Ref VPC
     Export:
-      Name: !Sub ${EnvName}${ServiceName}VPC
+      Name: !Sub ${EnvName}-${ServiceName}-vpc
 
-  FrontSubnets:
-    Description: A list of the front subnets
-    Value: !Join [ ",", [ !Ref FrontASubnet, !Ref FrontCSubnet ]]
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}FrontSubnets
-
-  ServiceSubnets:
-    Description: A list of the front subnets
-    Value: !Join [ ",", [ !Ref ServiceASubnet, !Ref ServiceCSubnet ]]
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}ServiceSubnets
-
-  BackendSubnets:
-    Description: A list of the datastore subnets
-    Value: !Join [ ",", [ !Ref BackendASubnet, !Ref BackendCSubnet ]]
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}BackendSubnets
-
-  FrontASubnet:
+  PublicSubnet:
     Description: A reference to the public subnet in the 1st Availability Zone
-    Value: !Ref FrontASubnet
+    Value: !Ref PublicSubnet
     Export:
-      Name: !Sub ${EnvName}${ServiceName}FrontASubnet
+      Name: !Sub ${EnvName}-${ServiceName}-public-subnet
 
-  FrontCSubnet:
-    Description: A reference to the public subnet in the 2nd Availability Zone
-    Value: !Ref FrontCSubnet
+  PrivateSubnet:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet
     Export:
-      Name: !Sub ${EnvName}${ServiceName}FrontCSubnet
-
-  ServiceASubnet:
-    Description: A reference to the public subnet in the 1st Availability Zone
-    Value: !Ref ServiceASubnet
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}ServiceASubnet
-
-  ServiceCSubnet:
-    Description: A reference to the public subnet in the 2nd Availability Zone
-    Value: !Ref ServiceCSubnet
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}ServiceCSubnet
-
-  BackendASubnet:
-    Description: A reference to the backend subnet in the 1st Availability Zone
-    Value: !Ref BackendASubnet
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}BackendASubnet
-
-  BackendCSubnet:
-    Description: A reference to the backend subnet in the 2nd Availability Zone
-    Value: !Ref BackendCSubnet
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}BackendCSubnet
-
-  BastionSubnet:
-    Description: A reference to the bastion subnet in the 1st Availability Zone
-    Value: !Ref BastionSubnet
-    Export:
-      Name: !Sub ${EnvName}${ServiceName}BastionSubnet
+      Name: !Sub ${EnvName}-${ServiceName}-private-subnet
 
   SecurityGroupInternal:
     Description: "Allow all traffic from and to each other within the VPC."
     Value: !Ref SecurityGroupInternal
     Export:
-      Name: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+      Name: !Sub ${EnvName}-${ServiceName}-security-group-internal
 
-  SecurityGroupPublicWeb:
-    Description: "Allow HTTP/HTTPS traffic from the Internet to the Web application servers."
-    Value: !Ref SecurityGroupPublicWeb
+  SecurityGroupPublicApi:
+    Description: "Allow HTTP/HTTPS traffic from the Internet to the API."
+    Value: !Ref SecurityGroupPublicApi
     Export:
-      Name: !Sub ${EnvName}${ServiceName}SecurityGroupPublicWeb
+      Name: !Sub ${EnvName}-${ServiceName}-security-group-public-api
 
   SecurityGroupMainteTF:
     Description: "Allow all traffic from Tech Fun."
     Value: !Ref SecurityGroupMainteTF
     Export:
-      Name: !Sub ${EnvName}${ServiceName}SecurityGroupMainteTF
+      Name: !Sub ${EnvName}-${ServiceName}-security-groupMainte-tf
