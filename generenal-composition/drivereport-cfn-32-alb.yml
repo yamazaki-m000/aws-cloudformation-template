@@ -1,0 +1,296 @@
+Description:
+  This template deploys ALB instances and its Target Groups on the VPC created by the "XxxService-cfn-01-basis.yml" template and "XxxService-cfn-31-ec2.yml" template.
+  This template depends on the following exported names.
+  "${EnvName}${ServiceName}VPC"
+  "${EnvName}${ServiceName}FrontASubnet"
+  "${EnvName}${ServiceName}FrontCSubnet"
+  "${EnvName}${ServiceName}SecurityGroupInternal"
+  "${EnvName}${ServiceName}SecurityGroupPublicWeb"
+  "${EnvName}${ServiceName}EC2XxxServiceApiA"
+  "${EnvName}${ServiceName}EC2XxxServiceApiC" #For prd and stg.
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer
+    Type: String
+    Default: XxxService 
+
+  RevisionNumber:
+    Description: The revision number of this template consists of 3 parts.
+    Type: String
+    Default: 0.1.0
+
+Conditions:
+  InPrdOrStg:
+    !Or [!Equals [!Ref EnvName, Prd], !Equals [!Ref EnvName, Stg]]
+  NotInPrdOrStg:
+    !Not [!Or [!Equals [!Ref EnvName, Prd], !Equals [!Ref EnvName, Stg]]]
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  ALB:
+    Dev:
+      ALBName: "dev-xxx-api"
+      TargetGroupName: dev-xxx-api-tg
+    Stg:
+      ALBName: "stg-xxx-api"
+      TargetGroupName: stg-xxx-api-tg
+    Prd:
+      ALBName: "prd-xxx-api"
+      TargetGroupName: prd-xxx-api-tg
+
+  Route53:
+    Dev:
+      HostedZoneId: SDEV7U9MKWU4V
+      HostedZoneName: api.dev.xxx-service.com.
+    Stg:
+      HostedZoneId: Z3P5SB286P2V5Q
+      HostedZoneName: api.stg.xxx-service.com.
+    Prd:
+      HostedZoneId: ZEDE5VTSSXS0J
+      HostedZoneName: api.xxx-service.com.
+
+  ACM:
+    Dev:
+      certARN: "arn:aws:acm:ap-northeast-1:1432879:certificate/xfheuidhwjsa"
+    Stg:
+      certARN: "arn:aws:acm:ap-northeast-1:2375324:certificate/xfheuidhwjsa"
+    Prd:
+      certARN: "arn:aws:acm:ap-northeast-1:7104938:certificate/xfheuidhwjsa"
+  
+  S3:
+    Dev:
+      BucketName: dev-xxx-logs
+    Stg:
+      BucketName: stg-xxx-logs
+    Prd:
+      BucketName: prd-xxx-logs
+
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  # Api ALB
+  AlbApi:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: true
+        - Key: access_logs.s3.bucket
+          Value: !FindInMap [S3, !Ref EnvName, BucketName]
+        - Key: idle_timeout.timeout_seconds
+          Value: 300
+      Name: !FindInMap [ALB, !Ref EnvName, ALBName]
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupPublicWeb
+      Subnets:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}FrontASubnet
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}FrontCSubnet
+      Type: application
+      IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: !FindInMap [ALB, !Ref EnvName, ALBName]
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Api
+
+  AlbApiTargetGroup10443ForNotInPrdOrStg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub
+        - ${TargetGroup}10443
+        - { TargetGroup: !FindInMap [ALB, !Ref EnvName, TargetGroupName] }
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvName}${ServiceName}VPC"
+      HealthCheckIntervalSeconds: 15
+      HealthCheckPath: '/ping'
+      HealthCheckPort: '10443'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Port: '10443'
+      Protocol: HTTP
+      TargetType: "instance"
+      Targets: 
+        - Id: 
+            Fn::ImportValue: 
+              !Sub "${EnvName}${ServiceName}EC2XxxServiceApiA"
+          Port: 10443
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: 180
+        - Key: "stickiness.enabled"
+          Value: false
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: 86400
+    Condition: NotInPrdOrStg
+
+  AlbApiTargetGroup10443:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub
+        - ${TargetGroup}10443
+        - { TargetGroup: !FindInMap [ALB, !Ref EnvName, TargetGroupName] }
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvName}${ServiceName}VPC"
+      HealthCheckIntervalSeconds: 15
+      HealthCheckPath: '/ping'
+      HealthCheckPort: '10443'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Port: '10443'
+      Protocol: HTTP
+      TargetType: "instance"
+      Targets: 
+        - Id: 
+            Fn::ImportValue: 
+              !Sub "${EnvName}${ServiceName}EC2XxxServiceApiA"
+          Port: 10443
+        - Id:
+            Fn::ImportValue: 
+              !Sub "${EnvName}${ServiceName}EC2XxxServiceApiC"
+          Port: 10443
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: 180
+        - Key: "stickiness.enabled"
+          Value: false
+        - Key: "stickiness.lb_cookie.duration_seconds"
+          Value: 86400
+    Condition: InPrdOrStg
+
+  AlbApiListener443:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          TargetGroupArn: !If [ InPrdOrStg, !Ref AlbApiTargetGroup10443, !Ref AlbApiTargetGroup10443ForNotInPrdOrStg ]
+      LoadBalancerArn: !Ref AlbApi
+      Port: 443
+      Protocol: "HTTPS"
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+      Certificates:
+        - CertificateArn:
+            !FindInMap [ACM, !Ref EnvName, certARN]
+
+  AlbApiListener443Rule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: "forward"
+          TargetGroupArn: !If [ InPrdOrStg, !Ref AlbApiTargetGroup10443, !Ref AlbApiTargetGroup10443ForNotInPrdOrStg ]
+      Conditions:
+        - Field: "path-pattern"
+          Values: ["*"]
+      ListenerArn: !Ref AlbApiListener443
+      Priority: 1
+
+  AlbApiTargetGroup10080:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub
+        - ${TargetGroup}10080
+        - { TargetGroup: !FindInMap [ALB, !Ref EnvName, TargetGroupName] }
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvName}${ServiceName}VPC"
+      HealthCheckIntervalSeconds: 120
+      HealthCheckPath: '/ping.php'
+      HealthCheckPort: '10080'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "301"
+      Port: '10080'
+      Protocol: HTTP
+      TargetType: "instance"
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: 180
+
+  AlbApiListener80:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          TargetGroupArn: !Ref AlbApiTargetGroup10080
+      LoadBalancerArn: !Ref AlbApi
+      Port: 80
+      Protocol: "HTTP"
+
+  AlbApiListener80Rule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: 443
+            StatusCode: HTTP_301
+      Conditions:
+        - Field: "path-pattern"
+          Values: ["*"]
+      ListenerArn: !Ref AlbApiListener80
+      Priority: 1
+
+  DnsRecordAlbApi:
+    Type: "AWS::Route53::RecordSet"
+    Properties:
+      Name: !FindInMap [Route53, !Ref EnvName, HostedZoneName]
+      HostedZoneId: !FindInMap [Route53, !Ref EnvName, HostedZoneId]
+      Type: "A"
+      AliasTarget:
+        DNSName: !GetAtt AlbApi.DNSName
+        HostedZoneId: !GetAtt AlbApi.CanonicalHostedZoneID
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  AlbApiTargetGroup10443:
+    Value: !Ref AlbApiTargetGroup10443
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}AlbApiTargetGroup10443
+    Condition: InPrdOrStg
+
+  AlbApiTargetGroup10443:
+    Value: !Ref AlbApiTargetGroup10443ForNotInPrdOrStg
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}AlbApiTargetGroup10443
+    Condition: NotInPrdOrStg

@@ -1,0 +1,484 @@
+Description:
+  This template deploys EC2 instances on the VPC created by the "dsr-cfn-01-basis.yml" template.
+  This template depends on the following export names.
+  "${EnvName}${ServiceName}VPC"
+  "${EnvName}${ServiceName}ServiceASubnet"
+  "${EnvName}${ServiceName}ServiceCSubnet"
+  "${EnvName}${ServiceName}BastionSubnet"
+  "${EnvName}${ServiceName}SecurityGroupPublicWeb"
+  "${EnvName}${ServiceName}SecurityGroupInternal"
+  "${EnvName}${ServiceName}SecurityGroupMainteOffice"
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg 
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer
+    Type: String
+    Default: XxxService
+
+  RevisionNumber:
+    Description: The revision number of this template consists of 3 parts.
+    Type: String
+    Default: 0.1.0
+    
+  EC2BastionVolumeSize:
+    Description: How large is the volume of the Bastion server
+    Type: Number
+    Default: 20
+
+  EC2XxxServiceApiVolumeSize:
+    Description: how large is the volume of the xxx service api servers.
+    Type: Number
+    Default: 20
+
+  EC2XxxServiceApiInstanceType:
+    Description: The instance type of the xxx service api servers.
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.medium  #Prd,StgのAPI用
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - m4.large
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  AMIs:
+    ap-northeast-1:
+      AmiId: "ami-0a2de1c3b415889d2"  #Amazon Linux 2
+
+  Keypairs:
+    Dev:
+      key: dev-key
+    Stg:
+      key: stg-key
+    Prd:
+      key: prd-key
+
+  Route53:
+    Stg:
+      HostedZoneId: "Z3P5SB2FECVR"
+      HostedZoneName: "stg.xxx.com."
+
+
+# ------------------------------------------------------------
+# Conditions section
+# ------------------------------------------------------------
+Conditions:
+  InPrdOrStg:
+    !Or [!Equals [!Ref EnvName, Prd], !Equals [!Ref EnvName, Stg]]
+  NotInPrdOrStg:
+    !Not [!Or [!Equals [!Ref EnvName, Prd], !Equals [!Ref EnvName, Stg]]]
+  InStg:
+    !Or [!Equals [!Ref EnvName, Stg]]
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  EC2BastionIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/service-role/AWSBatchServiceEventTargetRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "cloudwatch-logs"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+        -
+          PolicyName: "deployment"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:Put*"
+                  - "s3:DeleteObject"
+                  - "codedeploy:RegisterApplicationRevision"
+                  - "lambda:AddPermission"
+                  - "lambda:CreateFunction"
+                  - "lambda:ListFunctions"
+                  - "lambda:GetFunction"
+                  - "lambda:GetFunctionConfiguration"
+                  - "lambda:ListVersionsByFunction"
+                  - "lambda:UpdateFunctionCode"
+                  - "lambda:UpdateFunctionConfiguration"
+                  - "lambda:ListAliases"
+                  - "lambda:UpdateAlias"
+                  - "lambda:DeleteAlias"
+                Resource:
+                  - "*"
+
+  EC2BastionInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: "/"
+      Roles: 
+        - Ref: "EC2BastionIAMRole"
+
+  EC2Bastion:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}BastionSubnet
+      IamInstanceProfile: !Ref EC2BastionInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupMainteOffice
+      ImageId: !FindInMap [AMIs, !Ref "AWS::Region", AmiId]
+      InstanceType: t3.micro
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EC2BastionVolumeSize
+      KeyName: !FindInMap [Keypairs, !Ref EnvName, key]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}Bastion
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Bastion
+    Condition: InPrdOrStg
+
+  EC2BastionForNotInPrdOrStg:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}BastionSubnet
+      IamInstanceProfile: !Ref EC2BastionInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupMainteOffice
+      ImageId: !FindInMap [AMIs, !Ref "AWS::Region", AmiId]
+      InstanceType: t3.micro
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EC2BastionVolumeSize
+      KeyName: !FindInMap [Keypairs, !Ref EnvName, key]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}Bastion
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Bastion
+    Condition: NotInPrdOrStg
+
+  EC2BastionEIP:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      InstanceId: !If [ InPrdOrStg, !Ref EC2Bastion, !Ref EC2BastionForNotInPrdOrStg ]
+
+  EC2XxxServiceApiIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "cloudwatch-logs"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "logs:CreateLogGroup"
+                - "logs:CreateLogStream"
+                - "logs:PutLogEvents"
+                - "logs:DescribeLogStreams"
+                Resource:
+                - "arn:aws:logs:*:*:*"
+        -
+          PolicyName: "codedeploy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "s3:Get*"
+                - "s3:List*"
+                - "elasticloadbalancing:DescribeInstanceHealth"
+                Resource:
+                - "*"
+        -
+          PolicyName: "custom-metrics"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "cloudwatch:PutMetricData"
+                Resource:
+                - "*"
+        -
+          PolicyName: "s3put"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "s3:Put*"
+                Resource:
+                - "*"
+
+  EC2XxxServiceApiInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: "/"
+      Roles: 
+        - Ref: "EC2XxxServiceApiIAMRole"
+
+  EC2XxxServiceApiA:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceASubnet
+      IamInstanceProfile: !Ref EC2XxxServiceApiInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupMainteOffice
+      ImageId: !FindInMap [AMIs, !Ref "AWS::Region", AmiId]
+      InstanceType: !Ref EC2XxxServiceApiInstanceType
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EC2XxxServiceApiVolumeSize
+      KeyName: !FindInMap [Keypairs, !Ref EnvName, key]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}XxxServiceApiA
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Api
+
+  EC2XxxServiceApiC:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceCSubnet
+      IamInstanceProfile: !Ref EC2XxxServiceApiInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupMainteOffice
+      ImageId: !FindInMap [AMIs, !Ref "AWS::Region", AmiId]
+      InstanceType: !Ref EC2XxxServiceApiInstanceType
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EC2XxxServiceApiVolumeSize
+      KeyName: !FindInMap [Keypairs, !Ref EnvName, key]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}XxxServiceApiC
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Api
+    Condition: InPrdOrStg
+  
+  # ダミーマイページEC2  
+  EC2DummyMyPageIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "cloudwatch-logs"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "logs:CreateLogGroup"
+                - "logs:CreateLogStream"
+                - "logs:PutLogEvents"
+                - "logs:DescribeLogStreams"
+                Resource:
+                - "arn:aws:logs:*:*:*"
+        -
+          PolicyName: "codedeploy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                - "s3:Get*"
+                - "s3:List*"
+                Resource:
+                - "*"
+    Condition: InStg
+
+  EC2DummyMyPageInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: "/"
+      Roles: 
+        - Ref: "EC2DummyMyPageIAMRole"
+    Condition: InStg
+
+  EC2DummyMyPage:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}BastionSubnet
+      IamInstanceProfile: !Ref EC2DummyMyPageInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupPublicWeb
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupMainteOffice
+      ImageId: !FindInMap [AMIs, !Ref "AWS::Region", AmiId]
+      InstanceType: t3.micro
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EC2BastionVolumeSize
+      KeyName: !FindInMap [Keypairs, !Ref EnvName, key]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}DummyMyPage
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Web
+    Condition: InStg
+
+  EC2DummyMyPageEIP:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      InstanceId: !Ref EC2DummyMyPage
+    Condition: InStg
+
+  EC2DummyMyPageRecordSet:
+    Type: "AWS::Route53::RecordSet"
+    Properties:
+      HostedZoneId: !FindInMap [Route53, !Ref EnvName, HostedZoneId]
+      Name: 
+        Fn::Join:
+          - ""
+          - - "dummy--page."
+            - !FindInMap [Route53, !Ref EnvName, HostedZoneName]
+      Type: A
+      ResourceRecords:
+        - !Ref EC2DummyMyPageEIP
+      TTL: 300
+    Condition: InStg
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  EC2Bastion:
+    Description: A bastion server
+    Value: !Ref EC2Bastion
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}EC2Bastion
+    Condition: InPrdOrStg
+
+  EC2BastionForNotInPrdOrStg:
+    Description: A bastion server
+    Value: !Ref EC2BastionForNotInPrdOrStg
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}EC2Bastion
+    Condition: NotInPrdOrStg
+
+  EC2BastionEIP:
+    Description: An Elastic IP of the bastion server
+    Value: !Ref EC2BastionEIP
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}EC2BastionEIP
+
+  EC2XxxServiceApiA:
+    Description: An api server places in 1a for the xxx service.
+    Value: !Ref EC2ServiceApiA
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}EC2ServiceApiA
+
+  EC2XxxServiceApiC:
+    Description: An api server places in 1a for the xxx service.
+    Value: !Ref EC2ServiceApiC
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}EC2XxxServiceApiC
+    Condition: InPrdOrStg
