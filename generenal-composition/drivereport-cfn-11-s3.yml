@@ -1,0 +1,98 @@
+Description:
+  This template deploys s3 buckets and VPC endpoint.
+  When removing a stack, it keep resources and content without delete because DeletionPolicy is retain.
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names.
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer.
+    Type: String
+    Default: XxxService
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  Route53:
+    Dev:
+      HostedZoneId: FAEJGRFIHVEIII
+    Stg:
+      HostedZoneId: FAEJGRFIHVEIII
+    Prd:
+      HostedZoneId: FAEJGRFIHVEIII
+
+  ACM:
+    Dev:
+      certARN: "arn:aws:acm:us-east-1:xxx:certificate/xxx"
+    Stg:
+      certARN: "arn:aws:acm:us-east-1:xxx:certificate/xxx"
+    Prd:
+      certARN: "arn:aws:acm:us-east-1:xxx:certificate/xxx"
+
+  S3:
+    Dev:
+      RawDataBucketName: dev-iotcloud-template-data
+    Stg:
+      RawDataBucketName: stg-iotcloud-template-data
+    Prd:
+      RawDataBucketName: prd-iotcloud-template-data
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  # S3
+  S3BucketRawData:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !FindInMap [ "S3", !Ref EnvName, "RawDataBucketName"]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: GlacierRule
+            Prefix: "reportdata-backup/"
+            Status: Enabled
+            ExpirationInDays: '458'
+            Transitions:
+              - TransitionInDays: '30'
+                StorageClass: Glacier
+
+  # VPC Endpoint
+  VPCS3Endpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      RouteTableIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}PrivateRouteTable
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}VPC
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  VPCS3Endpoint:
+    Value: !Ref VPCS3Endpoint
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}VPCS3Endpoint
