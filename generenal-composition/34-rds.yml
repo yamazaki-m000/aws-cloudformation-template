@@ -1,0 +1,250 @@
+Description:
+  This template deploys an Aurora(MySQL) Cluster and instance(s) on the VPC created by the "basis.yml" template.
+  This template depends on the following export names.
+  "${EnvName}${ServiceName}VPC"
+  "${EnvName}${ServiceName}BackendASubnet"
+  "${EnvName}${ServiceName}BackendCSubnet"
+  "${EnvName}${ServiceName}SecurityGroupInternal"
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer
+    Type: String
+    Default: DAPSdr
+
+  RevisionNumber:
+    Description: The revision number of this template consists of 3 parts.
+    Type: String
+    Default: 0.1.0
+
+  DBMasterUserName:
+    Description: Please enter name of the master user on an RDS.
+    Type: String
+    Default: master
+
+  DBMasterUserPassword:
+    Description: Please enter password of the master user on an RDS.
+    Type: String
+    NoEcho: true
+
+  DBSnapshotArn:
+    Description: Please put the RDS snapshot name if you want to create an RDS Cluster with your snapshot.
+    Type: String
+
+  EnableMultiAz:
+    Description: Decide whether the RDS Cluster has a single instance or 2 instances.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  RDS:
+    Dev:
+      InstanceType: db.t2.small
+      ClusterName: dev-xxx-cluster
+      Instance1Name: xxx-dev1
+      Instance2Name: xxx-dev2
+      BackupRetentionPeriod: 3
+      PreferredBackupWindow: "18:00-19:00"  # in UTC
+      PreferredMaintenanceWindow: "sat:19:30-sat:20:00"  # in UTC
+      schemaName: xxx
+    Stg:
+      InstanceType: db.r4.large
+      ClusterName: dap-xxx-stg-cluster
+      Instance1Name: xxx-stg1
+      Instance2Name: xxx-srg2
+      BackupRetentionPeriod: 3
+      PreferredBackupWindow: "18:00-19:00"  # in UTC
+      PreferredMaintenanceWindow: "sat:19:30-sat:20:00"  # in UTC
+      schemaName: xxx
+    Prd:
+      InstanceType: db.r4.large
+      ClusterName: dap-xxx-prd-cluster
+      Instance1Name: xxx-prd1
+      Instance2Name: xxx-prd2
+      BackupRetentionPeriod: 15
+      PreferredBackupWindow: "18:00-19:00"  # in UTC
+      PreferredMaintenanceWindow: "sat:19:30-sat:20:00"  # in UTC
+      schemaName: xxx
+
+  Route53:
+    Dev:
+      HostedZoneName: dev.xxx.dev.com.
+    Stg:
+      HostedZoneName: stg.xxx.com.
+    Prd:
+      HostedZoneName: xxx.com.
+
+
+# ------------------------------------------------------------
+# Conditions section
+# ------------------------------------------------------------
+Conditions:
+  isBrandNewDB: !Equals [ !Ref DBSnapshotArn, "" ]
+  enableMultiAz: !Equals [ !Ref EnableMultiAz, "true" ]
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  # Parameter Groups
+  DBParameterGroup:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "RDS DB parameter group for xxx service"
+      Family: "aurora5.6"
+
+  DBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties:
+      Description: "RDS DB cluster parameter group for xxx service"
+      Family: "aurora5.6"
+      Parameters:
+        character_set_database: "utf8"
+        character_set_filesystem: "utf8"
+        character_set_results: "utf8"
+        character_set_server: "utf8"
+
+  # RDS
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group.
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}BackendASubnet
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}BackendCSubnet
+
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    Properties:
+      Engine: aurora
+      SnapshotIdentifier:
+        !If [isBrandNewDB, !Ref "AWS::NoValue", !Ref "DBSnapshotArn" ]
+      DatabaseName: !FindInMap [RDS, !Ref "EnvName", schemaName]
+      MasterUsername:
+        !If [isBrandNewDB, !Ref "DBMasterUserName", !Ref "AWS::NoValue" ]
+      MasterUserPassword:
+        !If [isBrandNewDB, !Ref "DBMasterUserPassword", !Ref "AWS::NoValue" ]
+      BackupRetentionPeriod: !FindInMap [RDS, !Ref "EnvName", "BackupRetentionPeriod"]
+      PreferredBackupWindow: !FindInMap [RDS, !Ref "EnvName", "PreferredBackupWindow"]
+      PreferredMaintenanceWindow: !FindInMap [RDS, !Ref "EnvName", "PreferredMaintenanceWindow"]
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBClusterIdentifier: !FindInMap [ RDS, !Ref EnvName, ClusterName ]
+      DBClusterParameterGroupName: !Ref "DBClusterParameterGroup"
+      StorageEncrypted: True
+      KmsKeyId: 
+        Fn::ImportValue: !Sub ${EnvName}${ServiceName}KMSKey
+      VpcSecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+      Tags:
+        - Key: Name
+          Value: !Sub xxx-service-${EnvName}-cluster
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Datastore
+
+  DBInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora
+      DBClusterIdentifier: !Ref "DBCluster"
+      DBInstanceIdentifier: !FindInMap [RDS, !Ref EnvName, Instance1Name]
+      DBInstanceClass: !FindInMap [RDS, !Ref "EnvName", "InstanceType"]
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBParameterGroupName: !Ref "DBParameterGroup"
+      Tags:
+        - Key: Name
+          Value: !Sub xxx-service-${EnvName}1
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Datastore
+
+  DBInstance2:
+    Type: AWS::RDS::DBInstance
+    Condition: enableMultiAz
+    Properties:
+      Engine: aurora
+      DBClusterIdentifier: !Ref "DBCluster"
+      DBInstanceIdentifier: !FindInMap [RDS, !Ref EnvName, Instance2Name]
+      DBInstanceClass: !FindInMap [RDS, !Ref "EnvName", "InstanceType"]
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      Tags:
+        - Key: Name
+          Value: !Sub xxx-service-${EnvName}2
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub ${ServiceName}
+        - Key: Role
+          Value: Datastore
+
+  # Route 53 records
+  DnsRecordRdsWriter:
+    Type: "AWS::Route53::RecordSet"
+    Properties:
+      HostedZoneName: !FindInMap [Route53, !Ref "EnvName", "HostedZoneName"]
+      Name: !Join ["", ["xxx-service-rds-writer.", !FindInMap [Route53, !Ref "EnvName", "HostedZoneName"] ] ]
+      Type: CNAME
+      ResourceRecords:
+        - !GetAtt DBCluster.Endpoint.Address
+      TTL: "60"
+
+  DnsRecordRdsReader:
+    Type: "AWS::Route53::RecordSet"
+    Properties:
+      HostedZoneName: !FindInMap [Route53, !Ref "EnvName", "HostedZoneName"]
+      Name: !Join ["", ["xxx-service-rds-reader.", !FindInMap [Route53, !Ref "EnvName", "HostedZoneName"] ] ]
+      Type: CNAME
+      ResourceRecords:
+        - !GetAtt DBCluster.ReadEndpoint.Address
+      TTL: "60"
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  DBCluster:
+    Description: An Aurora(MySQL) Cluster
+    Value: !Ref DBCluster
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}DBCluster
+
+  DnsRecordRdsWriter:
+    Description: A DNS record of the RDS writer url.
+    Value: !Ref DnsRecordRdsWriter
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}DnsRecordRdsWriter
+
+  DnsRecordRdsReader:
+    Description: A DNS record of the RDS reader url.
+    Value: !Ref DnsRecordRdsReader
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}DnsRecordRdsReader

@@ -1,0 +1,298 @@
+Description: 
+  This template deploys AWS Batch compute environments, job queues and job definitions.
+  This template depends on the following exported names.
+  ${EnvName}${ServiceName}SecurityGroupInternal
+  ${EnvName}${ServiceName}ServiceASubnet
+  ${EnvName}${ServiceName}ServiceCSubnet
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names.
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer.
+    Type: String
+    Default: XxxService
+
+  MaxvCpusDaily:
+    Type: Number
+    Default: 2
+
+  MinvCpusDaily:
+    Type: Number
+    Default: 0
+
+  DesiredvCpusDaily:
+    Type: Number
+    Default: 0
+
+  MaxvCpusMonthly:
+    Type: Number
+    Default: 2
+
+  MinvCpusMonthly:
+    Type: Number
+    Default: 0
+
+  DesiredvCpusMonthly:
+    Type: Number
+    Default: 0
+
+  JobMemoryDaily:
+    Type: Number
+    Default: 3000
+
+  JobVcpuDaily:
+    Type: Number
+    Default: 2
+
+  JobMemoryMonthly:
+    Type: Number
+    Default: 3000
+
+  JobVcpuMonthly:
+    Type: Number
+    Default: 2
+
+  RevisonNumber:
+    Description: The revision number of this template consists of 3 parts.
+    Type: String
+    Default: 0.1.0
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  Environment:
+    Dev:
+      SpringProfilesActive: "dev"
+      DailyHeapMemory: "-Xmx1920m"
+      MonthlyHeapMemory: "-Xmx1920m"
+    Stg:
+      SpringProfilesActive: "stg"
+      DailyHeapMemory: "-Xmx2700m"
+      MonthlyHeapMemory: "-Xmx2700m"
+    Prd:
+      SpringProfilesActive: "prd"
+      DailyHeapMemory: "-Xmx2700m"
+      MonthlyHeapMemory: "-Xmx2700m"
+  ECR:
+    Dev:
+      DailyImage: "xxx-service-batch/dev/daily"
+      MonthlyImage: "xxx-service-batch/dev/monthly"
+    Stg:
+      DailyImage: "xxx-service-batch/daily"
+      MonthlyImage: "xxx-service-batch/monthly"
+    Prd:
+      DailyImage: "xxx-service-batch/daily"
+      MonthlyImage: "xxx-service-batch/monthly"
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  # IAM
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "cloudwatch-logs"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+        -
+          PolicyName: "s3-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:Put*"
+                  - "s3:DeleteObject"
+                Resource:
+                  - "*"
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref ECSInstanceRole
+
+  AWSBatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: Allow
+            Principal:
+              Service:
+                - batch.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+      Path: "/service-role/"
+
+  # ComputeEnvironment
+  ComputeEnvironmentDaily:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      ServiceRole: !GetAtt AWSBatchServiceRole.Arn
+      ComputeEnvironmentName: !Sub ${EnvName}${ServiceName}ComputeEnvDaily
+      ComputeResources:
+        MaxvCpus: !Ref MaxvCpusDaily 
+        MinvCpus: !Ref MinvCpusDaily
+        DesiredvCpus: !Ref DesiredvCpusDaily
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        Type: EC2
+        Subnets:
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceASubnet
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceCSubnet
+        InstanceRole: !GetAtt ECSInstanceProfile.Arn
+        InstanceTypes:
+          - optimal
+        Tags:
+          Name: !Sub ${EnvName}${ServiceName}Batch-ComputeEnvironmentDaily
+          Env: !Ref EnvName
+          Service: !Sub IoTCloud${ServiceName}
+      State: ENABLED
+
+  ComputeEnvironmentMonthly:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      ServiceRole: !GetAtt AWSBatchServiceRole.Arn
+      ComputeEnvironmentName: !Sub ${EnvName}${ServiceName}ComputeEnvMonthly
+      ComputeResources:
+        MaxvCpus: !Ref MaxvCpusMonthly
+        MinvCpus: !Ref MinvCpusMonthly
+        DesiredvCpus: !Ref DesiredvCpusMonthly
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}SecurityGroupInternal
+        Type: EC2
+        Subnets:
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceASubnet
+          - Fn::ImportValue: !Sub ${EnvName}${ServiceName}ServiceCSubnet
+        InstanceRole: !GetAtt ECSInstanceProfile.Arn
+        InstanceTypes:
+          - optimal
+        Tags:
+          Name: !Sub ${EnvName}${ServiceName}Batch-ComputeEnvironmentMonthly
+          Env: !Ref EnvName
+          Service: !Sub IoTCloud${ServiceName}
+      State: ENABLED
+
+  # JobQueue
+  JobQueueDaily:
+    Type: AWS::Batch::JobQueue
+    Properties: 
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref ComputeEnvironmentDaily
+      State: ENABLED
+      Priority: 1
+      JobQueueName: !Sub ${EnvName}_${ServiceName}_daily_job_queue
+
+  JobQueueMonthly:
+    Type: AWS::Batch::JobQueue
+    Properties: 
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref ComputeEnvironmentMonthly
+      State: ENABLED
+      Priority: 1
+      JobQueueName: !Sub ${EnvName}_${ServiceName}_monthly_job_queue
+
+  # JobDefinition
+  JobDefinitionDaily:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub ${EnvName}${ServiceName}JobDefinitionDaily
+      ContainerProperties:
+        Command:
+          - sh
+          - ./_bootstrap.sh
+          - Ref::daily_batch_shell
+        Memory: !Ref JobMemoryDaily
+        Vcpus: !Ref JobVcpuDaily
+        Image: !Sub
+          - ${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${DailyImage}:latest
+          - { DailyImage: !FindInMap [ECR, !Ref EnvName, DailyImage] }
+        Environment:
+          - Name: "SPRING_PROFILES_ACTIVE"
+            Value: !FindInMap [Environment, !Ref EnvName, SpringProfilesActive]
+          - Name: "EXEC_DRIVE_REPORT_HISTORY"
+            Value: "driveReportHistory"
+          - Name: "EXEC_DRIVE_REPORT_CACHE_FOR_WEB"
+            Value: "driveReportCache"
+          - Name: "JAVA_HEAP_MEMORY"
+            Value: !FindInMap [Environment, !Ref EnvName, DailyHeapMemory]
+      RetryStrategy:
+        Attempts: 1
+
+  JobDefinitionMonthly:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub ${EnvName}${ServiceName}JobDefinitionMonthly
+      ContainerProperties:
+        Command:
+          - sh
+          - ./_bootstrap.sh
+          - ./xxx_service_monthly.sh
+        Memory: !Ref JobMemoryMonthly
+        Vcpus: !Ref JobVcpuMonthly
+        Image: !Sub
+          - ${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${MonthlyImage}:latest
+          - { MonthlyImage: !FindInMap [ECR, !Ref EnvName, MonthlyImage] }
+        Environment:
+          - Name: "SPRING_PROFILES_ACTIVE"
+            Value: !FindInMap [Environment, !Ref EnvName, SpringProfilesActive]
+          - Name: "EXEC_DRIVE_REPORT_TOTAL_DATA"
+            Value: "driveReportTotalData"
+          - Name: "JAVA_HEAP_MEMORY"
+            Value: !FindInMap [Environment, !Ref EnvName, MonthlyHeapMemory]
+      RetryStrategy:
+        Attempts: 1

@@ -1,0 +1,63 @@
+Description: This template creates a kms customer key to encrypt RDS.
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names.
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer.
+    Type: String
+    Default: XxxService
+
+  RevisonNumber:
+    Description: The revision number of this template consists of 3 parts.
+    Type: String
+    Default: 0.1.0
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: A KMS Key for encryption/decryption RDS.
+      KeyPolicy: 
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal: 
+              AWS: !Ref "AWS::AccountId"
+            Action:
+              - kms:*
+            Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}${ServiceName}KMSKey
+        - Key: Env
+          Value: !Ref EnvName
+        - Key: Service
+          Value: !Sub IoTCloud${ServiceName}
+        - Key: Role
+          Value: Key
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  Key:
+    Description: A KMS Customer Key
+    Value: !Ref KMSKey
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}KMSKey

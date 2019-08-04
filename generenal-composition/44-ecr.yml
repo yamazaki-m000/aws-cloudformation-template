@@ -1,0 +1,95 @@
+Description: This template deploys some ecs repositories.
+
+
+# ------------------------------------------------------------
+# Parameters section
+# ------------------------------------------------------------
+Parameters:
+  EnvName:
+    Description: An environment name that will be prefixed to resource names.
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stg
+      - Prd
+
+  ServiceName:
+    Description: Please enter the service name provided to the customer.
+    Type: String
+    Default: XxxService
+
+
+# ------------------------------------------------------------
+# Mappings section
+# ------------------------------------------------------------
+Mappings:
+  ECR:
+    Dev:
+      DailyRepositoryName: xxx-service-batch/dev/daily
+      MonthlyRepositoryName: xxx-service-batch/dev/monthly
+    Stg:
+      DailyRepositoryName: xxx-service-batch/daily
+      MonthlyRepositoryName: xxx-service-batch/monthly
+    Prd:
+      DailyRepositoryName: xxx-service-batch/daily
+      MonthlyRepositoryName: xxx-service-batch/monthly
+
+
+# ------------------------------------------------------------
+# Conditions section
+# ------------------------------------------------------------
+Conditions:
+  InPrdOrStg:
+    !Or [!Equals [!Ref EnvName, Prd], !Equals [!Ref EnvName, Stg]]
+
+
+# ------------------------------------------------------------
+# Resources section
+# ------------------------------------------------------------
+Resources:
+  ECRDaily:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !FindInMap [ECR, !Ref EnvName, DailyRepositoryName]
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Expire images older than 1 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},"action":{"type":"expire"}}]}'
+
+  ECRMonthly:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !FindInMap [ECR, !Ref EnvName, MonthlyRepositoryName]
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Expire images older than 1 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},"action":{"type":"expire"}}]}'
+
+  ECRBase:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: base-images/xxx-service-batch
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Expire images older than 1 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},"action":{"type":"expire"}}]}'
+    Condition: InPrdOrStg
+
+
+# ------------------------------------------------------------
+# Outputs section
+# ------------------------------------------------------------
+Outputs:
+  ECRDailyARN:
+    Description: An Arn of the ECR for xxx service daily batch.
+    Value: !Ref ECRDaily
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}ECRDaily
+
+  ECRMonthly:
+    Description: An Arn of the ECR for xxx service monthly batch.
+    Value: !Ref ECRMonthly
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}ECRMonthly
+
+  ECRBase:
+    Description: An Arn of the ECR for xxx service base images.
+    Value: !Ref ECRBase
+    Export:
+      Name: !Sub ${EnvName}${ServiceName}ECRBase
+    Condition: InPrdOrStg
